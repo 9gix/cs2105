@@ -59,8 +59,6 @@ public class FileTransferTestCase {
 	            try {
                     FileReceiver.main(receiver_args);
                 } catch (IOException e) {
-                    // TODO Auto-generated catch block
-                    e.printStackTrace();
                     fail(e.getMessage());
                 }		            
 	        }

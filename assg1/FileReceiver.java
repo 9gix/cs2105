@@ -1,11 +1,10 @@
-// Author: 
+// Author: Eugene
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.*;
-import java.lang.*;
 import java.nio.ByteBuffer;
 
 class FileReceiver {
@@ -39,9 +38,9 @@ class FileReceiver {
     public static final int FILENAME_BUFFER_OFFSET = 1;
     public static final int FILENAME_BUFFER_SIZE = 255; // String
     public static final int FILE_OFFSET_OFFSET = 256;
-    public static final int FILE_OFFSET_SIZE = Long.BYTES; // 8 bytes
+    public static final int FILE_OFFSET_SIZE = Long.SIZE / 8; // 8 bytes
     public static final int DATA_LENGTH_OFFSET = 264;
-    public static final int DATA_LENGTH_SIZE = Integer.BYTES; // 4 bytes
+    public static final int DATA_LENGTH_SIZE = Integer.SIZE / 8; // 4 bytes
     public static final int DATA_BUFFER_OFFSET = 268;
     public static final int DATA_BUFFER_SIZE = 512; // array of bytes
     
