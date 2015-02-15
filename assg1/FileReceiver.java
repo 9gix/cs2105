@@ -57,7 +57,7 @@ class FileReceiver {
 
         int port = Integer.parseInt(args[0]);
         FileReceiver server = new FileReceiver(port);
-        server.serve_forever();
+        server.serve_until_end_of_file();
     }
 
     public FileReceiver(int localPort) throws SocketException {
@@ -72,6 +72,19 @@ class FileReceiver {
             packet_data = packet.getData();
             this.handle_packet();
             
+        }
+    }
+    
+    public void serve_until_end_of_file() throws IOException{
+        while (true) {
+            packet = new DatagramPacket(packet_buffer, PACKET_BUFFER_SIZE);
+            socket.receive(packet);
+            packet_data = packet.getData();
+            if (this.get_chunk_size() > 0) {
+                this.handle_packet();                
+            } else {
+                break;
+            }
         }
     }
     

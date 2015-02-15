@@ -61,7 +61,7 @@ class FileSender {
         try (InputStream input_stream = new BufferedInputStream(new FileInputStream(source_filename))){
             int data_length;
             long file_offset = 0;
-            while((data_length = input_stream.read(data_buffer, 0, FileReceiver.DATA_BUFFER_SIZE)) != -1){
+            while((data_length = input_stream.read(data_buffer, 0, FileReceiver.DATA_BUFFER_SIZE)) > 0){
 
                 // File Offset
                 ByteBuffer.wrap(
@@ -94,6 +94,14 @@ class FileSender {
                 // UDP unreliable. Server didn't handle all packet if data send too fast.
                 Thread.sleep(4);
             }
+            // Send a Zero Data Length Packet Mark the end of File.
+            ByteBuffer.wrap(
+                    packet_buffer,
+                    FileReceiver.DATA_LENGTH_OFFSET,
+                    FileReceiver.DATA_LENGTH_SIZE).putInt(
+                            0);
+            packet = new DatagramPacket(packet_buffer, packet_buffer.length, socket_address);
+            socket.send(packet);
         }
     }
     
