@@ -22,7 +22,8 @@ class FileReceiver {
     
     public static final short SYN_MASK = 0b00000001;
     public static final short ACK_MASK = 0b00000010;
-    public static final short FIN_MASK = 0b00000100;
+    public static final short NAK_MASK = 0b00000100;
+    public static final short FIN_MASK = 0b00001000;
     
 
     // Packet Data Structure 
@@ -112,6 +113,7 @@ class FileReceiver {
             System.out.println("Received Packet Seq: " + this.seq_no);
             if (this.is_corrupted){
                 System.out.println("Packet Corrupted");
+                sendNak();
             }
             if (current_seq > seq_no){
                 System.out.println("Out of Sequence");
@@ -120,6 +122,26 @@ class FileReceiver {
         acknowledgePacket();
     }
     
+
+    private void sendNak() throws IOException {
+
+        byte[] nak_buff = new byte[14];
+        DatagramPacket nak_packet = new DatagramPacket(
+                nak_buff, nak_buff.length, packet.getSocketAddress());
+        
+        ByteBuffer buffer = ByteBuffer.wrap(nak_buff);
+        buffer.putInt(0); // Sequence No
+        buffer.putInt(ack_no); // Ack No
+        buffer.putInt(0); // Checksum
+        buffer.putShort(NAK_MASK); // Flag
+        nak_packet.setLength(14);
+        
+        int checksum = calculateChecksum(buffer.array());
+        buffer.putInt(Packet.CHECKSUM_BYTE_OFFSET, checksum);
+        socket.send(nak_packet);
+        System.out.println("Sending NAK: " + this.ack_no);        
+    }
+
 
     private void acknowledgePacket() throws IOException {
         this.ack_no = this.seq_no;
@@ -161,6 +183,7 @@ class FileReceiver {
         
         int checksum = calculateChecksum(buffer.array());
         buffer.putInt(Packet.CHECKSUM_BYTE_OFFSET, checksum);
+
         socket.send(ack_packet);
         System.out.println("Sending Ack: " + this.ack_no);
     }

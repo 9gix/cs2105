@@ -47,7 +47,7 @@ class FileSender {
         
         packet_buffer = new byte[FileReceiver.PACKET_BUFFER_SIZE];
         socket = new DatagramSocket();
-        socket.setSoTimeout(10);
+        socket.setSoTimeout(3);
         packet = new DatagramPacket(packet_buffer, packet_buffer.length, socket_address);
         
         sendFile(sourceFilename, destinationFilename);
@@ -87,17 +87,18 @@ class FileSender {
             }
             socket.send(packet);
             try {
-                socket.receive(ackPacket);
-                ByteBuffer ackBuffer = ByteBuffer.wrap(ackBuffArr);
-                
-                int ack_no = getAckNo(ackPacket);
+                ByteBuffer buffer = receiveAcknowledgement(ackPacket);
+                int ack_no = buffer.getInt(FileReceiver.Packet.ACK_BYTE_OFFSET);
+                short flags = buffer.getShort(FileReceiver.Packet.FLAG_BYTE_OFFSET);
+                boolean is_ack = (flags & FileReceiver.ACK_MASK) == FileReceiver.ACK_MASK;
+                boolean is_nak = (flags & FileReceiver.NAK_MASK) == FileReceiver.NAK_MASK;
                 System.out.println("Received Ack:" + ack_no);
                 
                 // Correct ACK No & Correct ACK Packet
-                if (ack_no == seq_no && FileReceiver.verifyChecksum(ackBuffer)){
+                if (FileReceiver.verifyChecksum(buffer) && !is_nak && is_ack){
                     waitForAck = false;
                 } else {
-                    waitForAck = false;
+                    waitForAck = true;
                 }
             } catch (SocketTimeoutException e){
                 waitForAck = true;
@@ -106,10 +107,11 @@ class FileSender {
         }
     }
 
-    private int getAckNo(DatagramPacket ackPacket) {
+    private ByteBuffer receiveAcknowledgement(DatagramPacket ackPacket) throws IOException {
+        socket.receive(ackPacket);
         byte[] dataBuffArr = ackPacket.getData();
         ByteBuffer ackBuffer = ByteBuffer.wrap(dataBuffArr);
-        return ackBuffer.getInt(FileReceiver.Packet.ACK_BYTE_OFFSET);
+        return ackBuffer;
     }
 
     private void buildPacket(byte[] dataBuffer, boolean isEOF) {
