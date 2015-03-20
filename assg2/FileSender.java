@@ -35,19 +35,19 @@ class FileSender {
             System.exit(1);
         }
         
-        String source_filename = args[0];
+        String sourceFilename = args[0];
         String hostname = args[1];
         int port = Integer.parseInt(args[2]);
-        SocketAddress socket_address = new InetSocketAddress(hostname, port);
-        String destination_filename = args[3];
-        new FileSender(source_filename, socket_address, destination_filename);
+        SocketAddress socketAddress = new InetSocketAddress(hostname, port);
+        String destinationFilename = args[3];
+        new FileSender(sourceFilename, socketAddress, destinationFilename);
     }
     
     public FileSender(String sourceFilename, SocketAddress socket_address, String destinationFilename) throws IOException, InterruptedException {
         
         packet_buffer = new byte[FileReceiver.PACKET_BUFFER_SIZE];
         socket = new DatagramSocket();
-        socket.setSoTimeout(200);
+        socket.setSoTimeout(10);
         packet = new DatagramPacket(packet_buffer, packet_buffer.length, socket_address);
         
         sendFile(sourceFilename, destinationFilename);
@@ -89,12 +89,19 @@ class FileSender {
             try {
                 socket.receive(ackPacket);
                 ByteBuffer ackBuffer = ByteBuffer.wrap(ackBuffArr);
+                
                 int ack_no = getAckNo(ackPacket);
                 System.out.println("Received Ack:" + ack_no);
                 
-                waitForAck = !FileReceiver.verifyChecksum(ackBuffer);
+                // Correct ACK No & Correct ACK Packet
+                if (ack_no == seq_no && FileReceiver.verifyChecksum(ackBuffer)){
+                    waitForAck = false;
+                } else {
+                    waitForAck = false;
+                }
             } catch (SocketTimeoutException e){
                 waitForAck = true;
+                System.out.println("Packet Lost");
             }
         }
     }

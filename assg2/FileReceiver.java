@@ -43,6 +43,7 @@ class FileReceiver {
     private boolean is_corrupted;
     private String filename;
     private RandomAccessFile file_access;
+    private int current_seq;
     
     public static class Packet {
         public static final int SEQ_BYTE_OFFSET = 0; // integer
@@ -86,21 +87,35 @@ class FileReceiver {
         receivePacket();
         prepareFile();
         
-        while (!isEndOfFile()) {
-            receivePacket();
-            if (!isEndOfFile()){
-                updateFile();
+        while (true) {
+            try{
+                receivePacket();
+            } catch (SocketTimeoutException e){
+                return;
+            }
+            if (!isEOF()){
+                if (current_seq + 1 == seq_no){
+                    updateFile();
+                    current_seq = seq_no;
+                }
+            } else {
+                socket.setSoTimeout(3000);
             }
         }
     }
-    
+
     private void receivePacket() throws IOException{
         this.is_corrupted = true;
         while (this.is_corrupted){
             socket.receive(packet);
             processPacket();
-            System.out.println(this.data_length);
             System.out.println("Received Packet Seq: " + this.seq_no);
+            if (this.is_corrupted){
+                System.out.println("Packet Corrupted");
+            }
+            if (current_seq > seq_no){
+                System.out.println("Out of Sequence");
+            }
         }
         acknowledgePacket();
     }
@@ -119,7 +134,6 @@ class FileReceiver {
      */
     public static boolean verifyChecksum(ByteBuffer packetBuffer) {
         int sent_checksum = packetBuffer.getInt(Packet.CHECKSUM_BYTE_OFFSET);
-        System.out.println(sent_checksum);
         byte[] b = packetBuffer.array();
         Arrays.fill(b, Packet.CHECKSUM_BYTE_OFFSET, Packet.CHECKSUM_BYTE_OFFSET + Packet.CHECKSUM_BYTE_LENGTH, (byte) 0);
         int received_checksum = calculateChecksum(b);
@@ -154,12 +168,8 @@ class FileReceiver {
     
 
     private void updateFile() throws IOException {
-//        file = new File(filename);
-        
-//            current_offset = this.seq_no * Packet.DATA_BYTE_LENGTH;
-//            file_access.seek(current_offset);
-            file_access.write(this.data);
-        
+        file_access.write(this.data);
+        System.out.println("File updated");
     }
 
     private void prepareFile() throws IOException {
@@ -180,12 +190,11 @@ class FileReceiver {
         data_checksum = packetBuffer.getInt();
         flags = packetBuffer.getShort();
         data = new byte[packetBuffer.remaining()];
-        System.out.println(data.length);
         packetBuffer.get(data);
         is_corrupted = !verifyChecksum(packetBuffer);
     }
 
-    private boolean isEndOfFile() {
+    private boolean isEOF() {
         return (flags & FIN_MASK) == FIN_MASK;
     }
     
