@@ -6,10 +6,22 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.logging.ConsoleHandler;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.zip.CRC32;
 
 class FileReceiver {
+    // LOGGING
+    private static final Logger log = Logger.getLogger(FileReceiver.class.getName());
+    private static final Level LOG_LEVEL = Level.INFO;
+    
+    
 
     public DatagramSocket socket;
     public DatagramPacket packet;
@@ -24,6 +36,7 @@ class FileReceiver {
     public static final short ACK_MASK = 0b00000010;
     public static final short NAK_MASK = 0b00000100;
     public static final short FIN_MASK = 0b00001000;
+
     
 
     // Packet Data Structure 
@@ -43,8 +56,10 @@ class FileReceiver {
     // -------------------------
     private boolean is_corrupted;
     private String filename;
-    private RandomAccessFile file_access;
     private int current_seq;
+    private FileChannel fc;
+    private ByteBuffer dataBuffer;
+    private ByteBuffer packetBuffer;
     
     public static class Packet {
         public static final int SEQ_BYTE_OFFSET = 0; // integer
@@ -64,6 +79,7 @@ class FileReceiver {
     
 
     public static void main(String[] args) throws IOException {
+        log.setLevel(LOG_LEVEL);
 
         // check if the number of command line argument is 1
         if (args.length != 1) {
@@ -84,20 +100,25 @@ class FileReceiver {
     }
 
     public void serve_until_end_of_file() throws IOException{
-        
         receivePacket();
         prepareFile();
+        log.info("Receiving File: " + this.filename);
+        long filePosition;
+        current_seq = seq_no + 1;
         
         while (true) {
             try{
                 receivePacket();
             } catch (SocketTimeoutException e){
+                log.info("File Received: " + this.filename);
+                log.info("Shutting Down Server");
                 return;
             }
             if (!isEOF()){
-                if (current_seq + 1 == seq_no){
-                    updateFile();
-                    current_seq = seq_no;
+                filePosition = (this.seq_no - 1) * Packet.DATA_BYTE_LENGTH;
+                if (filePosition >= 0){
+                    updateFile(dataBuffer, filePosition);
+                    current_seq = seq_no + 1;
                 }
             } else {
                 socket.setSoTimeout(3000);
@@ -105,21 +126,27 @@ class FileReceiver {
         }
     }
 
-    private void receivePacket() throws IOException{
+    private ByteBuffer receivePacket() throws IOException{
         this.is_corrupted = true;
+        ByteBuffer buffer = null;
         while (this.is_corrupted){
             socket.receive(packet);
             processPacket();
-            System.out.println("Received Packet Seq: " + this.seq_no);
+            log.fine("Received Packet Seq: " + this.seq_no);
             if (this.is_corrupted){
-                System.out.println("Packet Corrupted");
+                log.fine("Packet Corrupted");
                 sendNak();
             }
             if (current_seq > seq_no){
-                System.out.println("Out of Sequence");
+                log.fine(
+                        "Packet Ignored due to Out of Sequence\n" +
+                        "Current Sequence: " + current_seq + "\n" + 
+                        "Received Sequence: " + this.seq_no + "\n"
+                        );
             }
         }
         acknowledgePacket();
+        return buffer;
     }
     
 
@@ -139,7 +166,7 @@ class FileReceiver {
         int checksum = calculateChecksum(buffer.array());
         buffer.putInt(Packet.CHECKSUM_BYTE_OFFSET, checksum);
         socket.send(nak_packet);
-        System.out.println("Sending NAK: " + this.ack_no);        
+        log.fine("Sending NAK: " + this.ack_no);
     }
 
 
@@ -185,14 +212,14 @@ class FileReceiver {
         buffer.putInt(Packet.CHECKSUM_BYTE_OFFSET, checksum);
 
         socket.send(ack_packet);
-        System.out.println("Sending Ack: " + this.ack_no);
+        log.fine("Sending Ack: " + this.ack_no);
     }
     
     
 
-    private void updateFile() throws IOException {
-        file_access.write(this.data);
-        System.out.println("File updated");
+    private void updateFile(ByteBuffer buffer, long filePosition) throws IOException {
+        fc.write(buffer, filePosition);
+        log.fine("File updated");
     }
 
     private void prepareFile() throws IOException {
@@ -202,19 +229,22 @@ class FileReceiver {
             file.delete();
         }
         file.createNewFile();
-        file_access = new RandomAccessFile(file, "rw");
+        
+        fc = FileChannel.open(file.toPath(), StandardOpenOption.READ, StandardOpenOption.WRITE);
     }
     
     private void processPacket() {
         packet_data = packet.getData();
-        ByteBuffer packetBuffer = ByteBuffer.wrap(packet_data, 0, packet.getLength());
+        packetBuffer = ByteBuffer.wrap(packet_data, 0, packet.getLength());
         seq_no = packetBuffer.getInt();
         ack_no = packetBuffer.getInt();
         data_checksum = packetBuffer.getInt();
         flags = packetBuffer.getShort();
         data = new byte[packetBuffer.remaining()];
         packetBuffer.get(data);
+        dataBuffer = ByteBuffer.wrap(this.data);
         is_corrupted = !verifyChecksum(packetBuffer);
+        packetBuffer.rewind();
     }
 
     private boolean isEOF() {

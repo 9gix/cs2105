@@ -15,8 +15,8 @@ import static org.junit.Assert.*;
 public class UnreliableNetworkTests {
     private static final Integer PORT_RECEIVE = 9001;
     private static final Integer PORT_UNRELINET = 9000;
-    private static final float DATA_CORRUPT_RATE = 0.1f;
-    private static final float ACK_CORRUPT_RATE = 0.1f;
+    private static final float DATA_CORRUPT_RATE = 0.3f;
+    private static final float ACK_CORRUPT_RATE = 0.2f;
     private static final float DATA_LOSS_RATE = 0.1f;
     private static final float ACK_LOSS_RATE = 0.1f;
 
@@ -89,6 +89,27 @@ public class UnreliableNetworkTests {
 
         Checksum checksum2 = new CRC32();
         Path p2 = FileSystems.getDefault().getPath("data", "cny-copy.mp3");
+        byte [] fileData2 = Files.readAllBytes(p);
+        checksum2.update(fileData2, 0, fileData2.length);
+        long cloneChecksum = checksum2.getValue();
+
+        assertEquals(originalChecksum, cloneChecksum);
+    }
+    
+    @Test
+    public void testTransferExtremeLargeFile() throws Exception {
+        String[] sender_args = { "data/seq50.txt", "localhost", String.valueOf(PORT_UNRELINET) , "data/seq50-copy.txt" };
+        FileSender.main(sender_args);
+
+        
+        Checksum checksum = new CRC32();
+        Path p = FileSystems.getDefault().getPath("data", "seq50.txt");
+        byte [] fileData = Files.readAllBytes(p);
+        checksum.update(fileData, 0, fileData.length);
+        long originalChecksum = checksum.getValue();
+
+        Checksum checksum2 = new CRC32();
+        Path p2 = FileSystems.getDefault().getPath("data", "seq50-copy.txt");
         byte [] fileData2 = Files.readAllBytes(p);
         checksum2.update(fileData2, 0, fileData2.length);
         long cloneChecksum = checksum2.getValue();

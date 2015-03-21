@@ -13,10 +13,14 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.zip.CRC32;
 
 class FileSender {
-    
+    // LOGGING
+    private static final Logger log = Logger.getLogger(FileReceiver.class.getName());
+    private static final Level LOG_LEVEL = Level.INFO;
     
     
     public DatagramSocket socket; 
@@ -27,6 +31,7 @@ class FileSender {
     
     
     public static void main(String[] args) throws IOException, InterruptedException {
+        log.setLevel(LOG_LEVEL);
         
         // check if the number of command line argument is 4
         if (args.length != 4) {
@@ -47,7 +52,7 @@ class FileSender {
         
         packet_buffer = new byte[FileReceiver.PACKET_BUFFER_SIZE];
         socket = new DatagramSocket();
-        socket.setSoTimeout(3);
+        socket.setSoTimeout(1);
         packet = new DatagramPacket(packet_buffer, packet_buffer.length, socket_address);
         
         sendFile(sourceFilename, destinationFilename);
@@ -58,7 +63,7 @@ class FileSender {
         ByteBuffer buffer = ByteBuffer.wrap(fileMetaData);
         buffer.put(destinationFilename.getBytes());
         send(buffer.array(), false);
-        
+        log.info("Sending File: " + sourceFilename);
         try (InputStream input_stream = new BufferedInputStream(new FileInputStream(sourceFilename))){
             int dataLength;
             byte[] data_reader_buffer = new byte[FileReceiver.Packet.DATA_BYTE_LENGTH];
@@ -72,6 +77,7 @@ class FileSender {
             
         }
         send(new byte[0], true);
+        log.info("File Sent as: " + destinationFilename);
     }
 
     private void send(byte[] data, boolean isEOF) throws IOException {
@@ -81,28 +87,37 @@ class FileSender {
         DatagramPacket ackPacket = new DatagramPacket(ackBuffArr, ackBuffArr.length);
         while (waitForAck){
             if (isEOF){
-                System.out.println("Sending Packet FIN");
+                log.fine("Sending Packet FIN");
             } else {
-                System.out.println("Sending Packet Seq :" + seq_no);
+                log.fine("Sending Packet Seq :" + seq_no);
             }
             socket.send(packet);
             try {
                 ByteBuffer buffer = receiveAcknowledgement(ackPacket);
                 int ack_no = buffer.getInt(FileReceiver.Packet.ACK_BYTE_OFFSET);
                 short flags = buffer.getShort(FileReceiver.Packet.FLAG_BYTE_OFFSET);
+
+                boolean is_verified = FileReceiver.verifyChecksum(buffer);
                 boolean is_ack = (flags & FileReceiver.ACK_MASK) == FileReceiver.ACK_MASK;
                 boolean is_nak = (flags & FileReceiver.NAK_MASK) == FileReceiver.NAK_MASK;
-                System.out.println("Received Ack:" + ack_no);
                 
                 // Correct ACK No & Correct ACK Packet
-                if (FileReceiver.verifyChecksum(buffer) && !is_nak && is_ack){
+                if (is_verified && !is_nak && is_ack && ack_no == this.seq_no){
+                    log.fine("Received Ack:" + ack_no); 
                     waitForAck = false;
                 } else {
                     waitForAck = true;
+                    if (is_nak){
+                        log.fine("Negative Acknowledgement");
+                    } else if (ack_no != this.seq_no){
+                        log.fine("Invalid Acknowledgement");
+                    } else if (!is_verified){
+                        log.fine("Acknowledgement Corrupted");
+                    }
                 }
             } catch (SocketTimeoutException e){
                 waitForAck = true;
-                System.out.println("Packet Lost");
+                log.fine("Packet Lost");
             }
         }
     }
