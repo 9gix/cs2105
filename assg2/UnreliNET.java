@@ -5,8 +5,13 @@
 
 import java.net.*;
 import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class UnreliNET {
+    // LOGGING
+    private static final Logger log = Logger.getLogger(FileReceiver.class.getName());
+    private static final Level LOG_LEVEL = Level.SEVERE;
     
     static int buf_size = 1500;
     int returnPort_sk1;
@@ -47,7 +52,7 @@ public class UnreliNET {
                     // decide if to drop the packet or not
                     if (rnd.nextFloat() <= data_loss_pct) {
                         dropCounter++;
-                        System.out.println(dropCounter + " Packet dropped");
+                        log.info(dropCounter + " Packet dropped");
                         continue;
                     }
                     
@@ -57,7 +62,7 @@ public class UnreliNET {
                             if (rnd_byte.nextFloat() <= 0.3)  //decide if to corrupt a byte
                                 in_data[i] = (byte) ((in_data[i] + 1) % 10);
                         corruptionCounter++;
-                        System.out.println(corruptionCounter + " Packet corrupted");
+                        log.info(corruptionCounter + " Packet corrupted");
                     }
                     
                     // write data to the outgoing socket
@@ -99,7 +104,7 @@ public class UnreliNET {
                     // decide if to drop the packet or not
                     if (rnd.nextFloat() <= ack_loss_pct) {
                         ackdropCounter++;
-                        System.out.println(ackdropCounter + " ACK/NAK dropped");
+                        log.info(ackdropCounter + " ACK/NAK dropped");
                         continue;
                     }
                     
@@ -109,7 +114,7 @@ public class UnreliNET {
                             if (rnd_byte.nextFloat() <= 0.3) //decide if to corrupt a byte
                                 in_data[i] = (byte) ((in_data[i] + 1) % 10);
                         ackcorruptionCounter++;
-                        System.out.println(ackcorruptionCounter + " ACK/NAK corrupted");
+                        log.info(ackcorruptionCounter + " ACK/NAK corrupted");
                     }
                     
                     // write data to the outgoing socket
@@ -127,7 +132,8 @@ public class UnreliNET {
     
     public UnreliNET(float data_corrupt_rate, float ack_corrupt_rate,
                      float data_loss_rate, float ack_loss_rate, int unreliNetPort, int rcvPort) {
-        
+        log.setLevel(LOG_LEVEL);
+
         System.out.println("unreliNetPort = " + unreliNetPort
                                + "\nrcvPort = " + rcvPort 
                                + "\ndata corruption rate = " + data_corrupt_rate
