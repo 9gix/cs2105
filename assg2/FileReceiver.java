@@ -19,7 +19,7 @@ import java.util.zip.CRC32;
 class FileReceiver {
     // LOGGING
     private static final Logger log = Logger.getLogger(FileReceiver.class.getName());
-    private static final Level LOG_LEVEL = Level.INFO;
+    private static final Level LOG_LEVEL = Level.SEVERE;
     
     
 
@@ -32,10 +32,10 @@ class FileReceiver {
     byte[] packet_data;
     
     
-    public static final short SYN_MASK = 0b00000001;
-    public static final short ACK_MASK = 0b00000010;
-    public static final short NAK_MASK = 0b00000100;
-    public static final short FIN_MASK = 0b00001000;
+    public static final byte SYN_MASK = 0b00000001;
+    public static final byte ACK_MASK = 0b00000010;
+    public static final byte NAK_MASK = 0b00000100;
+    public static final byte FIN_MASK = 0b00001000;
 
     
 
@@ -43,8 +43,7 @@ class FileReceiver {
     private short data_length;
     private int data_checksum;
     private int seq_no;
-    private int ack_no;
-    private short flags;
+    private byte flags;
     private byte[] data;
     // -------------------------
     
@@ -64,16 +63,14 @@ class FileReceiver {
     public static class Packet {
         public static final int SEQ_BYTE_OFFSET = 0; // integer
         public static final int SEQ_BYTE_LENGTH = 4;
-        public static final int ACK_BYTE_OFFSET = 4; // integer
-        public static final int ACK_BYTE_LENGTH = 4;
-        public static final int CHECKSUM_BYTE_OFFSET = 8; // integer
+        public static final int CHECKSUM_BYTE_OFFSET = 4; // integer
         public static final int CHECKSUM_BYTE_LENGTH= 4;
-        public static final int FLAG_BYTE_OFFSET = 12; // short
-        public static final int FLAG_BYTE_LENGTH = 2;
-        public static final int DATA_BYTE_OFFSET = 14; // byte[]
-        public static final int DATA_BYTE_LENGTH = 986;
+        public static final int FLAG_BYTE_OFFSET = 8; // short
+        public static final int FLAG_BYTE_LENGTH = 1;
+        public static final int DATA_BYTE_OFFSET = 9; // byte[]
+        public static final int DATA_BYTE_LENGTH = 991;
         
-        public static final int HEADER_LENGTH = 14;
+        public static final int HEADER_LENGTH = 9;
     }
     
     
@@ -102,9 +99,9 @@ class FileReceiver {
     public void serve_until_end_of_file() throws IOException{
         receivePacket();
         prepareFile();
-        log.info("Receiving File: " + this.filename);
+        log.warning("Receiving File: " + this.filename);
         long filePosition;
-        current_seq = seq_no + 1;
+        current_seq = 1;
         
         while (true) {
             try{
@@ -115,13 +112,13 @@ class FileReceiver {
                 return;
             }
             if (!isEOF()){
-                filePosition = (this.seq_no - 1) * Packet.DATA_BYTE_LENGTH;
+                filePosition = (this.seq_no - 1)* Packet.DATA_BYTE_LENGTH;
                 if (filePosition >= 0){
                     updateFile(dataBuffer, filePosition);
                     current_seq = seq_no + 1;
                 }
             } else {
-                socket.setSoTimeout(3000);
+                socket.setSoTimeout(2000);
             }
         }
     }
@@ -132,13 +129,13 @@ class FileReceiver {
         while (this.is_corrupted){
             socket.receive(packet);
             processPacket();
-            log.fine("Received Packet Seq: " + this.seq_no);
+            log.warning("Received Packet Seq: " + this.seq_no);
             if (this.is_corrupted){
-                log.fine("Packet Corrupted");
+                log.warning("Packet Corrupted");
                 sendNak();
             }
             if (current_seq > seq_no){
-                log.fine(
+                log.warning(
                         "Packet Ignored due to Out of Sequence\n" +
                         "Current Sequence: " + current_seq + "\n" + 
                         "Received Sequence: " + this.seq_no + "\n"
@@ -152,26 +149,24 @@ class FileReceiver {
 
     private void sendNak() throws IOException {
 
-        byte[] nak_buff = new byte[14];
+        byte[] nak_buff = new byte[Packet.HEADER_LENGTH];
         DatagramPacket nak_packet = new DatagramPacket(
                 nak_buff, nak_buff.length, packet.getSocketAddress());
         
         ByteBuffer buffer = ByteBuffer.wrap(nak_buff);
-        buffer.putInt(0); // Sequence No
-        buffer.putInt(ack_no); // Ack No
+        buffer.putInt(this.seq_no); // Sequence No
         buffer.putInt(0); // Checksum
-        buffer.putShort(NAK_MASK); // Flag
-        nak_packet.setLength(14);
+        buffer.put(NAK_MASK); // Flag
+        nak_packet.setLength(Packet.HEADER_LENGTH);
         
         int checksum = calculateChecksum(buffer.array());
         buffer.putInt(Packet.CHECKSUM_BYTE_OFFSET, checksum);
         socket.send(nak_packet);
-        log.fine("Sending NAK: " + this.ack_no);
+        log.warning("Sending NAK: " + this.seq_no);
     }
 
 
     private void acknowledgePacket() throws IOException {
-        this.ack_no = this.seq_no;
         sendAck();
     }
 
@@ -197,29 +192,28 @@ class FileReceiver {
 
     private void sendAck() throws IOException {
 
-        byte[] ack_buff = new byte[14];
+        byte[] ack_buff = new byte[Packet.HEADER_LENGTH];
         DatagramPacket ack_packet = new DatagramPacket(
                 ack_buff, ack_buff.length, packet.getSocketAddress());
         
         ByteBuffer buffer = ByteBuffer.wrap(ack_buff);
-        buffer.putInt(0); // Sequence No
-        buffer.putInt(ack_no); // Ack No
+        buffer.putInt(this.seq_no + 1); // Sequence No
         buffer.putInt(0); // Checksum
-        buffer.putShort(ACK_MASK); // Flag
-        ack_packet.setLength(14);
+        buffer.put(ACK_MASK); // Flag
+        ack_packet.setLength(Packet.HEADER_LENGTH);
         
         int checksum = calculateChecksum(buffer.array());
         buffer.putInt(Packet.CHECKSUM_BYTE_OFFSET, checksum);
 
         socket.send(ack_packet);
-        log.fine("Sending Ack: " + this.ack_no);
+        log.warning("Sending Ack: " + this.seq_no);
     }
     
     
 
     private void updateFile(ByteBuffer buffer, long filePosition) throws IOException {
         fc.write(buffer, filePosition);
-        log.fine("File updated");
+        log.warning("File updated");
     }
 
     private void prepareFile() throws IOException {
@@ -237,9 +231,8 @@ class FileReceiver {
         packet_data = packet.getData();
         packetBuffer = ByteBuffer.wrap(packet_data, 0, packet.getLength());
         seq_no = packetBuffer.getInt();
-        ack_no = packetBuffer.getInt();
         data_checksum = packetBuffer.getInt();
-        flags = packetBuffer.getShort();
+        flags = packetBuffer.get();
         data = new byte[packetBuffer.remaining()];
         packetBuffer.get(data);
         dataBuffer = ByteBuffer.wrap(this.data);

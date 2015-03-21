@@ -20,14 +20,13 @@ import java.util.zip.CRC32;
 class FileSender {
     // LOGGING
     private static final Logger log = Logger.getLogger(FileReceiver.class.getName());
-    private static final Level LOG_LEVEL = Level.INFO;
+    private static final Level LOG_LEVEL = Level.SEVERE;
     
     
     public DatagramSocket socket; 
     public DatagramPacket packet;
     
     byte[] packet_buffer;
-    private int seq_no;
     
     
     public static void main(String[] args) throws IOException, InterruptedException {
@@ -60,64 +59,70 @@ class FileSender {
     
     private void sendFile(String sourceFilename, String destinationFilename) throws IOException {
         byte[] fileMetaData = new byte[FileReceiver.Packet.DATA_BYTE_LENGTH];
+        
+        // Sending File metadata
         ByteBuffer buffer = ByteBuffer.wrap(fileMetaData);
         buffer.put(destinationFilename.getBytes());
-        send(buffer.array(), false);
+        send(buffer.array(), 0, false);
         log.info("Sending File: " + sourceFilename);
+
+        // Sending File data
+        int sequence = 1;
         try (InputStream input_stream = new BufferedInputStream(new FileInputStream(sourceFilename))){
             int dataLength;
             byte[] data_reader_buffer = new byte[FileReceiver.Packet.DATA_BYTE_LENGTH];
             while((dataLength = input_stream.read(data_reader_buffer)) > 0){
-                seq_no++;
                 ByteArrayOutputStream out_stream = new ByteArrayOutputStream();
                 out_stream.write(data_reader_buffer, 0, dataLength);
                 byte[] dataBuffer = out_stream.toByteArray();
-                send(dataBuffer, false);
+                send(dataBuffer, sequence, false);
+                sequence++;
             }
-            
         }
-        send(new byte[0], true);
+        
+        // Sending FIN flags
+        send(new byte[0], sequence, true);
         log.info("File Sent as: " + destinationFilename);
     }
 
-    private void send(byte[] data, boolean isEOF) throws IOException {
-        buildPacket(data, isEOF);
+    private void send(byte[] data, int packetNo, boolean isEOF) throws IOException {
+        buildPacket(data, packetNo, isEOF);
         boolean waitForAck = true;
-        byte[] ackBuffArr = new byte[14];
+        byte[] ackBuffArr = new byte[FileReceiver.Packet.HEADER_LENGTH];
         DatagramPacket ackPacket = new DatagramPacket(ackBuffArr, ackBuffArr.length);
         while (waitForAck){
             if (isEOF){
-                log.fine("Sending Packet FIN");
+                log.warning("Sending Packet FIN");
             } else {
-                log.fine("Sending Packet Seq :" + seq_no);
+                log.warning("Sending Packet Seq :" + packetNo);
             }
             socket.send(packet);
             try {
                 ByteBuffer buffer = receiveAcknowledgement(ackPacket);
-                int ack_no = buffer.getInt(FileReceiver.Packet.ACK_BYTE_OFFSET);
-                short flags = buffer.getShort(FileReceiver.Packet.FLAG_BYTE_OFFSET);
+                int ack_no = buffer.getInt(FileReceiver.Packet.SEQ_BYTE_OFFSET);
+                byte flags = buffer.get(FileReceiver.Packet.FLAG_BYTE_OFFSET);
 
                 boolean is_verified = FileReceiver.verifyChecksum(buffer);
                 boolean is_ack = (flags & FileReceiver.ACK_MASK) == FileReceiver.ACK_MASK;
                 boolean is_nak = (flags & FileReceiver.NAK_MASK) == FileReceiver.NAK_MASK;
-                
+                boolean is_requesting_next_packet = (ack_no == packetNo + 1);
                 // Correct ACK No & Correct ACK Packet
-                if (is_verified && !is_nak && is_ack && ack_no == this.seq_no){
-                    log.fine("Received Ack:" + ack_no); 
+                if (is_verified && !is_nak && is_ack && is_requesting_next_packet){
+                    log.warning("Received Ack:" + ack_no); 
                     waitForAck = false;
                 } else {
                     waitForAck = true;
                     if (is_nak){
-                        log.fine("Negative Acknowledgement");
-                    } else if (ack_no != this.seq_no){
-                        log.fine("Invalid Acknowledgement");
+                        log.warning("Negative Acknowledgement");
+                    } else if (!is_requesting_next_packet){
+                        log.warning("Invalid Acknowledgement");
                     } else if (!is_verified){
-                        log.fine("Acknowledgement Corrupted");
+                        log.warning("Acknowledgement Corrupted");
                     }
                 }
             } catch (SocketTimeoutException e){
                 waitForAck = true;
-                log.fine("Packet Lost");
+                log.warning("Packet Lost");
             }
         }
     }
@@ -129,16 +134,15 @@ class FileSender {
         return ackBuffer;
     }
 
-    private void buildPacket(byte[] dataBuffer, boolean isEOF) {
+    private void buildPacket(byte[] dataBuffer, int packetNo, boolean isEOF) {
         ByteBuffer buffer = ByteBuffer.wrap(packet_buffer);
-        buffer.putInt(seq_no);
+        buffer.putInt(packetNo);
         buffer.putInt(0);
-        buffer.putInt(0);
-        short flags = FileReceiver.SYN_MASK;
+        byte flags = FileReceiver.SYN_MASK;
         if (isEOF){
             flags |= FileReceiver.FIN_MASK;
         }
-        buffer.putShort(flags);
+        buffer.put(flags);
         buffer.put(dataBuffer);
         int checksum = FileReceiver.calculateChecksum(buffer.array());
         buffer.putInt(FileReceiver.Packet.CHECKSUM_BYTE_OFFSET, checksum);
