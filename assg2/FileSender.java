@@ -33,17 +33,17 @@ class FileSender {
         log.setLevel(LOG_LEVEL);
         
         // check if the number of command line argument is 4
-        if (args.length != 4) {
+        if (args.length != 3) {
             System.out.println("Usage: java FileSender <path/filename> "
-                                   + "<rcvHostName> <rcvPort> <rcvFileName>");
+                                   + "<rcvPort> <rcvFileName>");
             System.exit(1);
         }
         
         String sourceFilename = args[0];
-        String hostname = args[1];
-        int port = Integer.parseInt(args[2]);
+        String hostname = "localhost";
+        int port = Integer.parseInt(args[1]);
         SocketAddress socketAddress = new InetSocketAddress(hostname, port);
-        String destinationFilename = args[3];
+        String destinationFilename = args[2];
         new FileSender(sourceFilename, socketAddress, destinationFilename);
     }
     
